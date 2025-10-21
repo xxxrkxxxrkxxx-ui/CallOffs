@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Call-Off Analysis</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+        .tooltip {
+            position: absolute;
+            text-align: center;
+            padding: 8px;
+            font-size: 12px;
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .axis-label {
+            font-size: 14px;
+            font-weight: 500;
+            fill: #4b5563;
+        }
+         .domain, .tick line {
+            stroke: #d1d5db;
+        }
+        .tick text {
+            fill: #6b7280;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 p-4 sm:p-6 md:p-8">
+
+    <div class="max-w-7xl mx-auto bg-white rounded-xl shadow-lg p-6">
+        <h1 class="text-2xl sm:text-3xl font-bold text-gray-800 mb-2">Employee Call-Off Analysis</h1>
+        <p class="text-gray-600 mb-6">Visualization of employee call-offs, sorted by frequency.</p>
+        
+        <!-- Dropdown for file upload -->
+        <div class="mb-6 flex items-center space-x-4">
+             <label for="csv-file-input" class="block text-sm font-medium text-gray-700">Upload New CSV:</label>
+             <input type="file" id="csv-file-input" accept=".csv" class="block w-full text-sm text-gray-500
+                file:mr-4 file:py-2 file:px-4
+                file:rounded-full file:border-0
+                file:text-sm file:font-semibold
+                file:bg-blue-50 file:text-blue-700
+                hover:file:bg-blue-100
+             "/>
+        </div>
+
+
+        <!-- Container for charts and legends -->
+        <div id="visualization-container" class="grid grid-cols-1 lg:grid-cols-4 gap-8">
+            
+            <!-- Main Chart -->
+            <div id="chart" class="lg:col-span-3 h-[600px] sm:h-[800px] w-full"></div>
+
+            <!-- Legend -->
+            <div id="legend-container" class="lg:col-span-1">
+                <h3 class="text-lg font-semibold text-gray-700 mb-3 border-b pb-2">Legend</h3>
+                
+                <div class="mb-6">
+                    <h4 class="font-semibold text-md text-gray-600 mb-2">Call-Off Type</h4>
+                    <div class="flex items-center mb-1">
+                        <div class="w-4 h-4 rounded-sm bg-green-500 mr-2"></div>
+                        <span class="text-sm text-gray-600">Excused</span>
+                    </div>
+                    <div class="flex items-center">
+                        <div class="w-4 h-4 rounded-sm bg-red-500 mr-2"></div>
+                        <span class="text-sm text-gray-600">Unexcused</span>
+                    </div>
+                </div>
+
+                <div>
+                    <h4 class="font-semibold text-md text-gray-600 mb-2">Supervisor</h4>
+                    <div id="supervisor-legend"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Supervisor Stats -->
+        <div class="mt-8 pt-6 border-t">
+             <h2 class="text-xl sm:text-2xl font-bold text-gray-800 mb-4">Supervisor Call-Off Summary</h2>
+             <div id="supervisor-stats" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                 <!-- Stats will be populated here -->
+             </div>
+        </div>
+        
+    </div>
+    
+    <!-- Tooltip element -->
+    <div id="tooltip" class="tooltip"></div>
+
+    <script>
+        const initialCsvPath = 'xxx.xls - Sheet1.csv';
+        const fileInput = document.getElementById('csv-file-input');
+
+        // Function to process data and render chart
+        const renderChart = (data) => {
+            // Clear previous visualizations
+            d3.select("#chart").selectAll("*").remove();
+            d3.select("#supervisor-legend").selectAll("*").remove();
+            d3.select("#supervisor-stats").selectAll("*").remove();
+
+            // 1. Process Data
+            const employeeData = d3.rollups(data, 
+                v => {
+                    const excused = d3.sum(v, d => d.Excused === '1' ? 1 : 0);
+                    const unexcused = v.length - excused;
+                    return {
+                        excused: excused,
+                        unexcused: unexcused,
+                        total: v.length,
+                        supervisor: v[0].Supervisor
+                    };
+                }, 
+                d => `${d.FirstName} ${d.LastName}`
+            )
+            .map(([name, values]) => ({ name, ...values }));
+
+            // Sort data by total call-offs
+            employeeData.sort((a, b) => b.total - a.total);
+
+            const supervisors = [...new Set(employeeData.map(d => d.supervisor))];
+            
+            // Supervisor Stats
+            const supervisorStats = d3.rollups(data, v => v.length, d => d.Supervisor)
+                .map(([name, count]) => ({ name, count }))
+                .sort((a, b) => b.count - a.count);
+
+            // 2. Setup Chart Dimensions
+            const margin = { top: 20, right: 30, bottom: 40, left: 150 };
+            const chartElement = document.getElementById('chart');
+            const width = chartElement.clientWidth - margin.left - margin.right;
+            const height = employeeData.length * 25 > 600 ? employeeData.length * 25 : 600; 
+            
+            chartElement.style.height = `${height + margin.top + margin.bottom}px`;
+
+            const svg = d3.select("#chart")
+                .append("svg")
+                .attr("width", width + margin.left + margin.right)
+                .attr("height", height + margin.top + margin.bottom)
+                .append("g")
+                .attr("transform", `translate(${margin.left},${margin.top})`);
+            
+            // 3. Create Scales
+            const xScale = d3.scaleLinear()
+                .domain([0, d3.max(employeeData, d => d.total)])
+                .range([0, width]);
+
+            const yScale = d3.scaleBand()
+                .domain(employeeData.map(d => d.name))
+                .range([0, height])
+                .padding(0.3);
+
+            const supervisorColor = d3.scaleOrdinal(d3.schemeCategory10)
+                .domain(supervisors);
+            
+            // 4. Create Axes
+            svg.append("g")
+                .call(d3.axisLeft(yScale));
+
+            svg.append("g")
+                .attr("transform", `translate(0,${height})`)
+                .call(d3.axisBottom(xScale));
+
+            svg.append("text")
+                .attr("class", "axis-label")
+                .attr("text-anchor", "middle")
+                .attr("x", width / 2)
+                .attr("y", height + margin.bottom - 5)
+                .text("Number of Call-Offs");
+
+            // Tooltip
+            const tooltip = d3.select("#tooltip");
+
+            // 5. Create Bars
+            const groups = svg.selectAll(".bar-group")
+                .data(employeeData)
+                .enter()
+                .append("g")
+                .attr("class", "bar-group")
+                .attr("transform", d => `translate(0, ${yScale(d.name)})`)
+                .on("mouseover", function(event, d) {
+                    tooltip.transition().duration(200).style("opacity", .9);
+                    tooltip.html(
+                        `<div class="font-bold text-gray-800">${d.name}</div>
+                         <div class="text-sm text-gray-600">Supervisor: ${d.supervisor}</div>
+                         <hr class="my-1">
+                         <div class="text-sm">Total: <span class="font-semibold">${d.total}</span></div>
+                         <div class="text-sm text-green-600">Excused: <span class="font-semibold">${d.excused}</span></div>
+                         <div class="text-sm text-red-600">Unexcused: <span class="font-semibold">${d.unexcused}</span></div>`
+                    )
+                    .style("left", (event.pageX + 15) + "px")
+                    .style("top", (event.pageY - 28) + "px");
+                })
+                .on("mouseout", function(d) {
+                    tooltip.transition().duration(500).style("opacity", 0);
+                });
+
+            // Unexcused part (bottom layer)
+            groups.append("rect")
+                .attr("class", "unexcused-bar")
+                .attr("x", 0)
+                .attr("width", d => xScale(d.unexcused))
+                .attr("height", yScale.bandwidth())
+                .attr("fill", "#ef4444"); // red-500
+
+            // Excused part (top layer)
+            groups.append("rect")
+                .attr("class", "excused-bar")
+                .attr("x", d => xScale(d.unexcused))
+                .attr("width", d => xScale(d.excused))
+                .attr("height", yScale.bandwidth())
+                .attr("fill", "#22c55e"); // green-500
+            
+            // Supervisor border
+            groups.append("rect")
+                .attr("class", "supervisor-border")
+                .attr("x", 0)
+                .attr("width", d => xScale(d.total))
+                .attr("height", yScale.bandwidth())
+                .attr("fill", "none")
+                .attr("stroke", d => supervisorColor(d.supervisor))
+                .attr("stroke-width", 3);
+            
+            // 6. Create Legends
+            const supervisorLegend = d3.select("#supervisor-legend");
+            supervisors.forEach(sup => {
+                const legendItem = supervisorLegend.append("div").attr("class", "flex items-center mb-2");
+                legendItem.append("div")
+                    .style("width", "16px")
+                    .style("height", "16px")
+                    .style("background-color", "none")
+                    .style("border", `3px solid ${supervisorColor(sup)}`)
+                    .attr("class", "mr-2 rounded-sm");
+                legendItem.append("span").text(sup).attr("class", "text-sm text-gray-600");
+            });
+
+            // 7. Render Supervisor Stats
+            const statsContainer = d3.select("#supervisor-stats");
+            supervisorStats.forEach(stat => {
+                const card = statsContainer.append("div")
+                    .attr("class", "bg-gray-50 p-4 rounded-lg border border-gray-200");
+                card.append("h4")
+                    .attr("class", "text-sm font-medium text-gray-500 truncate")
+                    .text(stat.name);
+                card.append("p")
+                    .attr("class", "mt-1 text-3xl font-semibold text-gray-900")
+                    .text(stat.count);
+            });
+        };
+
+        // Function to load and process data
+        const loadData = (fileOrPath) => {
+             if (typeof fileOrPath === 'string') {
+                // Load from path
+                d3.csv(fileOrPath).then(data => {
+                    if (data.length > 0) {
+                        renderChart(data);
+                    } else {
+                        alert('Could not load or parse the initial CSV file.');
+                    }
+                }).catch(error => {
+                    console.error('Error loading initial CSV:', error);
+                    d3.select("#chart").html(`<div class="text-red-500 p-4">Error: Could not load data from ${fileOrPath}. Please make sure the file is available and correctly formatted.</div>`);
+                });
+            } else {
+                // Load from file object
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const text = e.target.result;
+                    const data = d3.csvParse(text);
+                    if (data.length > 0) {
+                        renderChart(data);
+                    } else {
+                        alert('The uploaded file is empty or not in a valid CSV format.');
+                    }
+                };
+                reader.onerror = function() {
+                    alert('Error reading the uploaded file.');
+                };
+                reader.readAsText(fileOrPath);
+            }
+        };
+
+        // Event listener for file input
+        fileInput.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                loadData(file);
+            }
+        });
+
+        // Initial load
+        loadData(initialCsvPath);
+    </script>
+
+</body>
+</html>
