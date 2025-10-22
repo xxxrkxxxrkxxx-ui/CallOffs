@@ -6,304 +6,434 @@
     <title>Call-Off Analysis</title>
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
     <style>
         body {
-            font-family: 'Inter', sans-serif;
-            background-color: #f3f4f6;
+            font-family: 'Courier Prime', 'Courier New', monospace;
+            font-weight: bold;
+            background-color: #000000;
+            color: #e5e7eb;
+            overflow: hidden; /* Prevent scrolling during load */
         }
         .tooltip {
             position: absolute;
-            text-align: center;
-            padding: 8px;
-            font-size: 12px;
-            background: #fff;
-            border: 1px solid #ddd;
+            text-align: left;
+            padding: 10px;
+            font-size: 14px;
+            background: #111827;
+            border: 1px solid #374151;
             border-radius: 8px;
             pointer-events: none;
             opacity: 0;
             transition: opacity 0.3s;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.4), 0 4px 6px -2px rgba(0,0,0,0.2);
+            min-width: 220px;
         }
         .axis-label {
             font-size: 14px;
-            font-weight: 500;
-            fill: #4b5563;
+            font-weight: bold;
+            fill: #a3e635; /* lime-400 */
         }
          .domain, .tick line {
-            stroke: #d1d5db;
+            stroke: #4b5563;
         }
         .tick text {
-            fill: #6b7280;
+            fill: #d1d5db;
             font-size: 12px;
+            font-weight: bold;
         }
+        #share-feedback {
+            transition: opacity 0.5s ease-in-out;
+            text-shadow: 0 0 8px #10b981;
+        }
+        .panel {
+             background-color: rgba(10, 15, 25, 0.7);
+             backdrop-filter: blur(4px);
+             border: 1px solid rgba(130, 255, 130, 0.3);
+        }
+
+        /* --- Loader Styles --- */
+        #loader {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: #000;
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: opacity 0.7s ease-out, visibility 0.7s ease-out;
+        }
+        #loader.fade-out {
+            opacity: 0;
+            visibility: hidden;
+        }
+        #loader canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+        .loader-content {
+            z-index: 1;
+            text-align: center;
+            color: #0f0;
+            text-shadow: 0 0 10px #0f0, 0 0 20px #0f0;
+        }
+        .loader-title {
+            font-size: 2.5rem;
+            letter-spacing: 0.2em;
+            animation: flicker 1.5s infinite alternate;
+        }
+        .loader-subtitle {
+            font-size: 1rem;
+            margin-top: 0.5rem;
+            animation: flicker 2s infinite alternate;
+        }
+        @keyframes flicker {
+            0%, 18%, 22%, 25%, 53%, 57%, 100% {
+                text-shadow:
+                    0 0 4px #0f0, 0 0 11px #0f0, 0 0 19px #0f0,
+                    0 0 40px #0f0, 0 0 80px #0f0, 0 0 90px #0f0,
+                    0 0 100px #0f0, 0 0 150px #0f0;
+            }
+            20%, 24%, 55% { text-shadow: none; }
+        }
+        #app-container.hidden { display: none; }
+
     </style>
 </head>
-<body class="bg-gray-100 p-4 sm:p-6 md:p-8">
+<body class="p-4 sm:p-6 md:p-8">
 
-    <div class="max-w-7xl mx-auto bg-white rounded-xl shadow-lg p-6">
-        <h1 class="text-2xl sm:text-3xl font-bold text-gray-800 mb-2">Employee Call-Off Analysis</h1>
-        <p class="text-gray-600 mb-6">Visualization of employee call-offs, sorted by frequency.</p>
+    <!-- Hacker Loader -->
+    <div id="loader">
+        <canvas id="matrix-canvas"></canvas>
+        <div class="loader-content">
+            <h1 class="loader-title">GRIDVECTOR</h1>
+            <p class="loader-subtitle">Initializing data streams...</p>
+        </div>
+    </div>
+    
+    <!-- Access Code Modal -->
+    <div id="password-modal" class="hidden fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center">
+        <div class="panel p-6 rounded-lg text-center">
+            <h3 class="text-lg text-lime-400 mb-4">ACCESS REQUIRED</h3>
+            <p class="text-gray-300 mb-4">Enter access code to upload file.</p>
+            <input type="password" id="password-input" class="bg-gray-900 text-center text-lime-400 font-bold tracking-widest p-2 rounded border border-gray-600 focus:outline-none focus:ring-2 focus:ring-lime-400">
+            <p id="password-error" class="text-red-500 text-xs mt-2 h-4"></p>
+            <button id="password-submit" class="mt-4 bg-lime-400 text-black font-bold py-2 px-6 rounded-lg hover:bg-lime-300">SUBMIT</button>
+        </div>
+    </div>
+
+    <div id="app-container" class="hidden max-w-7xl mx-auto bg-black rounded-xl p-6 border border-gray-800">
+        <div class="flex justify-between items-start mb-2 border-b border-gray-700/50 pb-4">
+            <div>
+                <h1 class="text-xl sm:text-2xl text-lime-400 tracking-wider">CALL-OFF ANALYSIS</h1>
+                <p class="text-[10px] text-lime-400/80 [text-shadow:0_0_8px_rgba(163,230,53,0.8)]">GRIDVECTOR DATA VISUALIZATION</p>
+            </div>
+            <div>
+                <button id="share-button" class="bg-gray-800 text-gray-200 font-bold py-2 px-4 rounded-lg border border-gray-600 hover:border-lime-400 hover:text-white transition-colors duration-300">Share Report</button>
+                <span id="share-feedback" class="ml-4 text-emerald-400 opacity-0">Link Copied!</span>
+            </div>
+        </div>
         
-        <!-- Dropdown for file upload -->
-        <div class="mb-6 flex items-center space-x-4">
-             <label for="csv-file-input" class="block text-sm font-medium text-gray-700">Upload New CSV:</label>
-             <input type="file" id="csv-file-input" accept=".csv" class="block w-full text-sm text-gray-500
-                file:mr-4 file:py-2 file:px-4
-                file:rounded-full file:border-0
-                file:text-sm file:font-semibold
-                file:bg-blue-50 file:text-blue-700
-                hover:file:bg-blue-100
-             "/>
+        <div class="my-6 flex items-center space-x-4 p-3 panel rounded-lg">
+             <button id="upload-button" class="bg-lime-400 text-black font-bold py-2 px-4 rounded-lg hover:bg-lime-300">UPLOAD NEW CSV</button>
+             <input type="file" id="csv-file-input" accept=".csv" class="hidden">
         </div>
 
 
-        <!-- Container for charts and legends -->
-        <div id="visualization-container" class="grid grid-cols-1 lg:grid-cols-4 gap-8">
+        <div id="visualization-container" class="grid grid-cols-1 lg:grid-cols-4 gap-6">
             
-            <!-- Main Chart -->
-            <div id="chart" class="lg:col-span-3 h-[600px] sm:h-[800px] w-full"></div>
+            <div id="chart" class="lg:col-span-3 w-full panel p-4 rounded-lg"></div>
 
-            <!-- Legend -->
-            <div id="legend-container" class="lg:col-span-1">
-                <h3 class="text-lg font-semibold text-gray-700 mb-3 border-b pb-2">Legend</h3>
+            <div id="legend-container" class="lg:col-span-1 panel p-4 rounded-lg">
+                <h3 class="text-base text-lime-400 tracking-wider mb-3 border-b border-gray-700/50 pb-2">LEGEND</h3>
                 
                 <div class="mb-6">
-                    <h4 class="font-semibold text-md text-gray-600 mb-2">Call-Off Type</h4>
-                    <div class="flex items-center mb-1">
-                        <div class="w-4 h-4 rounded-sm bg-green-500 mr-2"></div>
-                        <span class="text-sm text-gray-600">Excused</span>
+                    <h4 class="font-bold text-sm text-gray-300 mb-2">CALL-OFF TYPE</h4>
+                    <div class="flex items-center mb-2">
+                        <div class="w-4 h-4 rounded-sm bg-white mr-3"></div>
+                        <span class="text-sm text-gray-300">Excused</span>
                     </div>
                     <div class="flex items-center">
-                        <div class="w-4 h-4 rounded-sm bg-red-500 mr-2"></div>
-                        <span class="text-sm text-gray-600">Unexcused</span>
+                        <div class="w-4 h-4 rounded-sm bg-gray-600 mr-3"></div>
+                        <span class="text-sm text-gray-300">Unexcused</span>
                     </div>
                 </div>
 
-                <div>
-                    <h4 class="font-semibold text-md text-gray-600 mb-2">Supervisor</h4>
-                    <div id="supervisor-legend"></div>
+                <div class="mb-6">
+                    <h4 class="font-bold text-sm text-gray-300 mb-2">SUPERVISOR</h4>
+                    <div id="supervisor-legend" class="space-y-2"></div>
                 </div>
             </div>
         </div>
-
-        <!-- Supervisor Stats -->
-        <div class="mt-8 pt-6 border-t">
-             <h2 class="text-xl sm:text-2xl font-bold text-gray-800 mb-4">Supervisor Call-Off Summary</h2>
-             <div id="supervisor-stats" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                 <!-- Stats will be populated here -->
-             </div>
-        </div>
-        
     </div>
     
-    <!-- Tooltip element -->
     <div id="tooltip" class="tooltip"></div>
 
     <script>
-        const initialCsvPath = 'xxx.xls - Sheet1.csv';
-        const fileInput = document.getElementById('csv-file-input');
+        document.addEventListener('DOMContentLoaded', () => {
+            const loader = document.getElementById('loader');
+            const appContainer = document.getElementById('app-container');
+            const canvas = document.getElementById('matrix-canvas');
+            const ctx = canvas.getContext('2d');
 
-        // Function to process data and render chart
-        const renderChart = (data) => {
-            // Clear previous visualizations
-            d3.select("#chart").selectAll("*").remove();
-            d3.select("#supervisor-legend").selectAll("*").remove();
-            d3.select("#supervisor-stats").selectAll("*").remove();
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
 
-            // 1. Process Data
-            const employeeData = d3.rollups(data, 
-                v => {
-                    const excused = d3.sum(v, d => d.Excused === '1' ? 1 : 0);
-                    const unexcused = v.length - excused;
-                    return {
-                        excused: excused,
-                        unexcused: unexcused,
-                        total: v.length,
-                        supervisor: v[0].Supervisor
-                    };
-                }, 
-                d => `${d.FirstName} ${d.LastName}`
-            )
-            .map(([name, values]) => ({ name, ...values }));
+            const alphabet = 'アァカサ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+            const fontSize = 16;
+            const columns = canvas.width / fontSize;
+            const rainDrops = [];
 
-            // Sort data by total call-offs
-            employeeData.sort((a, b) => b.total - a.total);
-
-            const supervisors = [...new Set(employeeData.map(d => d.supervisor))];
-            
-            // Supervisor Stats
-            const supervisorStats = d3.rollups(data, v => v.length, d => d.Supervisor)
-                .map(([name, count]) => ({ name, count }))
-                .sort((a, b) => b.count - a.count);
-
-            // 2. Setup Chart Dimensions
-            const margin = { top: 20, right: 30, bottom: 40, left: 150 };
-            const chartElement = document.getElementById('chart');
-            const width = chartElement.clientWidth - margin.left - margin.right;
-            const height = employeeData.length * 25 > 600 ? employeeData.length * 25 : 600; 
-            
-            chartElement.style.height = `${height + margin.top + margin.bottom}px`;
-
-            const svg = d3.select("#chart")
-                .append("svg")
-                .attr("width", width + margin.left + margin.right)
-                .attr("height", height + margin.top + margin.bottom)
-                .append("g")
-                .attr("transform", `translate(${margin.left},${margin.top})`);
-            
-            // 3. Create Scales
-            const xScale = d3.scaleLinear()
-                .domain([0, d3.max(employeeData, d => d.total)])
-                .range([0, width]);
-
-            const yScale = d3.scaleBand()
-                .domain(employeeData.map(d => d.name))
-                .range([0, height])
-                .padding(0.3);
-
-            const supervisorColor = d3.scaleOrdinal(d3.schemeCategory10)
-                .domain(supervisors);
-            
-            // 4. Create Axes
-            svg.append("g")
-                .call(d3.axisLeft(yScale));
-
-            svg.append("g")
-                .attr("transform", `translate(0,${height})`)
-                .call(d3.axisBottom(xScale));
-
-            svg.append("text")
-                .attr("class", "axis-label")
-                .attr("text-anchor", "middle")
-                .attr("x", width / 2)
-                .attr("y", height + margin.bottom - 5)
-                .text("Number of Call-Offs");
-
-            // Tooltip
-            const tooltip = d3.select("#tooltip");
-
-            // 5. Create Bars
-            const groups = svg.selectAll(".bar-group")
-                .data(employeeData)
-                .enter()
-                .append("g")
-                .attr("class", "bar-group")
-                .attr("transform", d => `translate(0, ${yScale(d.name)})`)
-                .on("mouseover", function(event, d) {
-                    tooltip.transition().duration(200).style("opacity", .9);
-                    tooltip.html(
-                        `<div class="font-bold text-gray-800">${d.name}</div>
-                         <div class="text-sm text-gray-600">Supervisor: ${d.supervisor}</div>
-                         <hr class="my-1">
-                         <div class="text-sm">Total: <span class="font-semibold">${d.total}</span></div>
-                         <div class="text-sm text-green-600">Excused: <span class="font-semibold">${d.excused}</span></div>
-                         <div class="text-sm text-red-600">Unexcused: <span class="font-semibold">${d.unexcused}</span></div>`
-                    )
-                    .style("left", (event.pageX + 15) + "px")
-                    .style("top", (event.pageY - 28) + "px");
-                })
-                .on("mouseout", function(d) {
-                    tooltip.transition().duration(500).style("opacity", 0);
-                });
-
-            // Unexcused part (bottom layer)
-            groups.append("rect")
-                .attr("class", "unexcused-bar")
-                .attr("x", 0)
-                .attr("width", d => xScale(d.unexcused))
-                .attr("height", yScale.bandwidth())
-                .attr("fill", "#ef4444"); // red-500
-
-            // Excused part (top layer)
-            groups.append("rect")
-                .attr("class", "excused-bar")
-                .attr("x", d => xScale(d.unexcused))
-                .attr("width", d => xScale(d.excused))
-                .attr("height", yScale.bandwidth())
-                .attr("fill", "#22c55e"); // green-500
-            
-            // Supervisor border
-            groups.append("rect")
-                .attr("class", "supervisor-border")
-                .attr("x", 0)
-                .attr("width", d => xScale(d.total))
-                .attr("height", yScale.bandwidth())
-                .attr("fill", "none")
-                .attr("stroke", d => supervisorColor(d.supervisor))
-                .attr("stroke-width", 3);
-            
-            // 6. Create Legends
-            const supervisorLegend = d3.select("#supervisor-legend");
-            supervisors.forEach(sup => {
-                const legendItem = supervisorLegend.append("div").attr("class", "flex items-center mb-2");
-                legendItem.append("div")
-                    .style("width", "16px")
-                    .style("height", "16px")
-                    .style("background-color", "none")
-                    .style("border", `3px solid ${supervisorColor(sup)}`)
-                    .attr("class", "mr-2 rounded-sm");
-                legendItem.append("span").text(sup).attr("class", "text-sm text-gray-600");
-            });
-
-            // 7. Render Supervisor Stats
-            const statsContainer = d3.select("#supervisor-stats");
-            supervisorStats.forEach(stat => {
-                const card = statsContainer.append("div")
-                    .attr("class", "bg-gray-50 p-4 rounded-lg border border-gray-200");
-                card.append("h4")
-                    .attr("class", "text-sm font-medium text-gray-500 truncate")
-                    .text(stat.name);
-                card.append("p")
-                    .attr("class", "mt-1 text-3xl font-semibold text-gray-900")
-                    .text(stat.count);
-            });
-        };
-
-        // Function to load and process data
-        const loadData = (fileOrPath) => {
-             if (typeof fileOrPath === 'string') {
-                // Load from path
-                d3.csv(fileOrPath).then(data => {
-                    if (data.length > 0) {
-                        renderChart(data);
-                    } else {
-                        alert('Could not load or parse the initial CSV file.');
-                    }
-                }).catch(error => {
-                    console.error('Error loading initial CSV:', error);
-                    d3.select("#chart").html(`<div class="text-red-500 p-4">Error: Could not load data from ${fileOrPath}. Please make sure the file is available and correctly formatted.</div>`);
-                });
-            } else {
-                // Load from file object
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    const text = e.target.result;
-                    const data = d3.csvParse(text);
-                    if (data.length > 0) {
-                        renderChart(data);
-                    } else {
-                        alert('The uploaded file is empty or not in a valid CSV format.');
-                    }
-                };
-                reader.onerror = function() {
-                    alert('Error reading the uploaded file.');
-                };
-                reader.readAsText(fileOrPath);
+            for (let x = 0; x < columns; x++) {
+                rainDrops[x] = 1;
             }
-        };
 
-        // Event listener for file input
-        fileInput.addEventListener('change', (event) => {
-            const file = event.target.files[0];
-            if (file) {
-                loadData(file);
-            }
+            const drawMatrix = () => {
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = '#0F0';
+                ctx.font = fontSize + 'px monospace';
+
+                for (let i = 0; i < rainDrops.length; i++) {
+                    const text = alphabet.charAt(Math.floor(Math.random() * alphabet.length));
+                    ctx.fillText(text, i * fontSize, rainDrops[i] * fontSize);
+                    if (rainDrops[i] * fontSize > canvas.height && Math.random() > 0.975) {
+                        rainDrops[i] = 0;
+                    }
+                    rainDrops[i]++;
+                }
+            };
+            
+            const matrixInterval = setInterval(drawMatrix, 33);
+
+            setTimeout(() => {
+                loader.classList.add('fade-out');
+                loader.addEventListener('transitionend', () => {
+                    loader.style.display = 'none';
+                    appContainer.classList.remove('hidden');
+                    document.body.style.overflow = '';
+                    initializeChartApp();
+                    clearInterval(matrixInterval);
+                }, { once: true });
+            }, 2500);
         });
 
-        // Initial load
-        loadData(initialCsvPath);
+        function initializeChartApp() {
+            const fileInput = document.getElementById('csv-file-input');
+            const shareButton = document.getElementById('share-button');
+            const shareFeedback = document.getElementById('share-feedback');
+            const uploadButton = document.getElementById('upload-button');
+            const passwordModal = document.getElementById('password-modal');
+            const passwordInput = document.getElementById('password-input');
+            const passwordSubmit = document.getElementById('password-submit');
+            const passwordError = document.getElementById('password-error');
+
+            const initialCsvData = `FirstName,LastName,Excused,Supervisor
+Aireyn,Taylor-Hunter,1,Jason Daugherty
+Itishia,Hunt,0,Jason Daugherty
+Aireyn,Taylor-Hunter,0,Jason Daugherty
+Aireyn,Taylor-Hunter,1,Jason Daugherty
+David,Peraza,1,Mohammed Ezzat
+Nessrine,Kasmi,1,Aldo Diaz
+Nessrine,Kasmi,1,Aldo Diaz
+Nessrine,Kasmi,1,Aldo Diaz
+Nessrine,Kasmi,1,Aldo Diaz
+Ruth,Dock,1,Jason Daugherty
+Rommel,Perez,1,Aldo Diaz
+Enkhzaya,Oldokh,0,Jason Daugherty
+Maryann,Fillari,1,Aldo Diaz
+Wossenu,Adesse,1,Jason Daugherty
+Serinia,Brown,1,Douglas Fletcher
+Delon,Johnson,1,Inderprit Gill
+Ashanti,Griffin,1,Inderprit Gill
+Dominic,Thorn,1,Inderprit Gill
+Michael,Gorman,0,Julio Daldon
+Maryann,Fillari,1,Aldo Diaz
+Jeffrey,Hughley,1,Aldo Diaz
+Marcus,Lewis,1,Mohammed Ezzat
+Issack,Jones,0,Aldo Diaz
+Adrian,Gutter,0,Aldo Diaz
+Latisha,White,1,Aldo Diaz
+Lorenzo,Hudson,0,Mohammed Ezzat
+Rommel,Calvert,1,Jason Daugherty
+Faisal,Alnumi,1,Jason Daugherty
+Bishnu,Wagle,1,Jason Daugherty
+Liliana,Prieto,1,Jason Daugherty
+Itishia,Hunt,0,Jason Daugherty
+Aireyn,Taylor-Hunter,0,Jason Daugherty
+Aireyn,Taylor-Hunter,1,Jason Daugherty
+David,Peraza,1,Mohammed Ezzat
+Nessrine,Kasmi,1,Aldo Diaz
+Nessrine,Kasmi,1,Aldo Diaz
+Nessrine,Kasmi,1,Aldo Diaz
+Nessrine,Kasmi,1,Aldo Diaz
+Ruth,Dock,1,Jason Daugherty
+Rommel,Perez,1,Aldo Diaz
+Enkhzaya,Oldokh,0,Jason Daugherty
+Maryann,Fillari,1,Aldo Diaz
+Wossenu,Adesse,1,Jason Daugherty
+Serinia,Brown,1,Douglas Fletcher
+Delon,Johnson,1,Inderprit Gill
+Ashanti,Griffin,1,Inderprit Gill
+Dominic,Thorn,1,Inderprit Gill
+Michael,Gorman,0,Julio Daldon
+Maryann,Fillari,1,Aldo Diaz
+Jeffrey,Hughley,1,Aldo Diaz
+Marcus,Lewis,1,Mohammed Ezzat
+Issack,Jones,0,Aldo Diaz
+Adrian,Gutter,0,Aldo Diaz
+Latisha,White,1,Aldo Diaz
+Lorenzo,Hudson,0,Mohammed Ezzat
+Rommel,Calvert,1,Jason Daugherty
+Faisal,Alnumi,1,Jason Daugherty
+Bishnu,Wagle,1,Jason Daugherty`;
+
+            shareButton.addEventListener('click', () => {
+                navigator.clipboard.writeText(window.location.href).then(() => {
+                    shareFeedback.style.opacity = '1';
+                    setTimeout(() => { shareFeedback.style.opacity = '0'; }, 2000);
+                }).catch(err => { console.error('Failed to copy: ', err); });
+            });
+            
+            // Password Modal Logic
+            uploadButton.addEventListener('click', () => {
+                passwordModal.classList.remove('hidden');
+                passwordInput.focus();
+            });
+
+            passwordModal.addEventListener('click', (e) => {
+                if (e.target === passwordModal) {
+                    passwordModal.classList.add('hidden');
+                    passwordError.textContent = '';
+                    passwordInput.value = '';
+                }
+            });
+
+            passwordSubmit.addEventListener('click', () => {
+                if (passwordInput.value === '91965') {
+                    passwordModal.classList.add('hidden');
+                    passwordError.textContent = '';
+                    passwordInput.value = '';
+                    fileInput.click();
+                } else {
+                    passwordError.textContent = 'ACCESS DENIED';
+                    passwordInput.value = '';
+                }
+            });
+
+            const renderChart = (data) => {
+                d3.select("#chart").selectAll("*").remove();
+                d3.select("#supervisor-legend").selectAll("*").remove();
+
+                const employeeData = d3.rollups(data, v => {
+                    const excused = d3.sum(v, d => d.Excused === '1' ? 1 : 0);
+                    return { excused: excused, unexcused: v.length - excused, total: v.length, supervisor: v[0].Supervisor };
+                }, d => `${d.FirstName} ${d.LastName}`).map(([name, values]) => ({ name, ...values }));
+
+                employeeData.sort((a, b) => b.total - a.total);
+
+                const supervisors = [...new Set(employeeData.map(d => d.supervisor))].sort();
+                const supervisorStats = d3.rollups(data, v => v.length, d => d.Supervisor).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
+
+                const margin = { top: 20, right: 30, bottom: 40, left: 150 };
+                const chartElement = document.getElementById('chart');
+                const width = chartElement.clientWidth - margin.left - margin.right;
+                const height = Math.max(600, employeeData.length * 30);
+                
+                d3.select(chartElement).style('height', `${height + margin.top + margin.bottom}px`);
+
+                const svg = d3.select("#chart").append("svg")
+                    .attr("width", "100%").attr("height", "100%")
+                    .attr('viewBox', `0 0 ${width + margin.left + margin.right} ${height + margin.top + margin.bottom}`)
+                    .append("g").attr("transform", `translate(${margin.left},${margin.top})`);
+                
+                const xScale = d3.scaleLinear().domain([0, d3.max(employeeData, d => d.total)]).range([0, width]);
+                const yScale = d3.scaleBand().domain(employeeData.map(d => d.name)).range([0, height]).padding(0.5);
+                const supervisorColor = d3.scaleOrdinal().domain(supervisors).range(["#10B981", "#F59E0B", "#3B82F6", "#EF4444", "#8B5CF6", "#EC4899", "#6366F1", "#14B8A6"]);
+                
+                svg.append("g").call(d3.axisLeft(yScale).tickSize(0)).select(".domain").remove();
+                svg.append("g").attr("transform", `translate(0,${height})`).call(d3.axisBottom(xScale).ticks(Math.min(10, d3.max(employeeData, d => d.total))));
+                svg.append("text").attr("class", "axis-label").attr("text-anchor", "middle").attr("x", width / 2).attr("y", height + margin.bottom - 5).text("Number of Call-Offs");
+
+                const tooltip = d3.select("#tooltip");
+
+                const groups = svg.selectAll(".bar-group").data(employeeData).enter().append("g")
+                    .attr("class", "bar-group").attr("transform", d => `translate(0, ${yScale(d.name)})`)
+                    .on("mouseover", function(event, d) {
+                        tooltip.transition().duration(200).style("opacity", 1);
+                        tooltip.html(`<div class="font-bold text-white text-base">${d.name}</div><div class="text-sm text-gray-400 mb-2">Supervisor: ${d.supervisor}</div><div class="w-full h-px bg-gray-600 my-1"></div><div class="flex justify-between text-sm"><span class="text-gray-300">Total:</span> <span class="font-bold text-white">${d.total}</span></div><div class="flex justify-between text-sm"><span class="text-white">Excused:</span> <span class="font-bold text-white">${d.excused}</span></div><div class="flex justify-between text-sm"><span class="text-gray-400">Unexcused:</span> <span class="font-bold text-gray-400">${d.unexcused}</span></div>`)
+                        .style("left", (event.pageX + 20) + "px").style("top", (event.pageY - 20) + "px");
+                    }).on("mouseout", () => tooltip.transition().duration(500).style("opacity", 0));
+                
+                groups.append("rect").attr("x", 0).attr("width", d => Math.max(0, xScale(d.total))).attr("height", yScale.bandwidth()).attr("fill", d => supervisorColor(d.supervisor)).attr("rx", 2);
+                
+                const innerBarHeight = yScale.bandwidth() * 0.3; // Made the inner bar smaller
+                const innerBarY = (yScale.bandwidth() - innerBarHeight) / 2;
+
+                groups.append("rect").attr("x", 0).attr("y", innerBarY).attr("width", d => Math.max(0, xScale(d.unexcused))).attr("height", innerBarHeight).attr("fill", "#4b5563"); 
+                groups.append("rect").attr("x", d => xScale(d.unexcused)).attr("y", innerBarY).attr("width", d => Math.max(0, xScale(d.excused))).attr("height", innerBarHeight).attr("fill", "#ffffff");
+                
+                supervisors.forEach(sup => {
+                    const stat = supervisorStats.find(s => s.name === sup);
+                    const count = stat ? stat.count : 0;
+                    const legendItem = d3.select("#supervisor-legend").append("div").attr("class", "flex items-center justify-between");
+                    const nameContainer = legendItem.append("div").attr("class", "flex items-center");
+                    nameContainer.append("div").style("width", "12px").style("height", "12px").style("background-color", supervisorColor(sup)).attr("class", "mr-3 rounded-sm flex-shrink-0");
+                    nameContainer.append("span").text(sup).attr("class", "text-xs text-gray-300 truncate pr-2");
+                    legendItem.append("span").text(count).attr("class", "text-xs font-bold text-lime-400");
+                });
+            };
+
+            const loadDataFromFile = (file) => {
+                const reader = new FileReader();
+                reader.onload = e => {
+                    try {
+                        const data = d3.csvParse(e.target.result);
+                        if (data.length > 0) renderChart(data);
+                        else alert('ERROR: Uploaded file is empty or invalid.');
+                    } catch (error) {
+                        alert('ERROR: Could not parse CSV file. Check format.');
+                        console.error("CSV Parse Error:", error);
+                    }
+                };
+                reader.onerror = () => alert('ERROR: Could not read file.');
+                reader.readAsText(file);
+            };
+
+            fileInput.addEventListener('change', (event) => {
+                const file = event.target.files[0];
+                if (file) loadDataFromFile(file);
+            });
+
+            // Initial load
+            try {
+                const initialData = d3.csvParse(initialCsvData);
+                renderChart(initialData);
+            } catch (error) {
+                alert('FATAL ERROR: Could not parse embedded data.');
+                console.error("Initial Data Parse Error:", error);
+                d3.select("#chart").html(`<div class="text-red-400 p-4">Error: Could not parse the embedded data.</div>`);
+            }
+
+            // Responsive chart rendering
+            window.addEventListener('resize', () => {
+                try {
+                    if (fileInput.files[0]) {
+                        loadDataFromFile(fileInput.files[0]);
+                    } else {
+                        renderChart(d3.csvParse(initialCsvData));
+                    }
+                } catch(e) { console.error("Resize render error:", e)}
+            });
+        }
     </script>
 
 </body>
 </html>
+
